@@ -111,13 +111,19 @@ textarea:focus,input:focus,select:focus{border-color:var(--primary);box-shadow:0
 }
 @media print{
   @page{size:140mm 220mm;margin:0!important}
-  html,body{width:140mm;height:220mm;margin:0!important;padding:0!important;background:#fff!important}
-  .no-print,.header,.dashboard,.mobile-nav,.modal,.toast{display:none!important}
-  .preview{display:block;padding:0;overflow:visible}.invoice-card{width:140mm!important;height:220mm!important;
-    box-shadow:none!important;margin:0 auto;page-break-after:always;page-break-inside:avoid}
-  .invoice-card:last-child{page-break-after:avoid}
+  html,body{width:140mm!important;min-width:140mm!important;max-width:140mm!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
+  .app{width:140mm!important;max-width:140mm!important;margin:0!important;padding:0!important}
+  .header,.dashboard,.mobile-nav,.modal,.toast,.no-print,.layout>.card:first-child,.section-title{display:none!important}
+  .layout{display:block!important;width:140mm!important;margin:0!important;padding:0!important}
+  .layout>.card:last-child{display:block!important;width:140mm!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:#fff!important}
+  .preview{display:block!important;width:140mm!important;margin:0!important;padding:0!important;overflow:visible!important}
+  .invoice-card{width:140mm!important;height:220mm!important;min-height:220mm!important;max-height:220mm!important;
+    box-shadow:none!important;border:0!important;margin:0!important;border-radius:0!important;
+    page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid}
+  .invoice-card:last-child{page-break-after:auto;break-after:auto}
   .top-meta-row{background:#fff!important}.top-meta-row span{border:1px solid #000!important}
-  .address-grid{border-color:#000!important}.address-box h4{color:#000!important}.table-header{background:#fff!important;color:#000!important;border-top:1px solid #000;border-bottom:2px solid #000}
+  .address-grid{border-color:#000!important}.address-box h4{color:#000!important}
+  .table-header{background:#fff!important;color:#000!important;border-top:1px solid #000;border-bottom:2px solid #000}
   .summary-section{background:#fff!important;border-color:#000!important}.total-row{color:#000!important}.page-footer{color:#000!important;border-color:#000!important}
 }
 </style>
