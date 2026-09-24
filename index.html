@@ -70,7 +70,7 @@ textarea:focus,input:focus,select:focus{border-color:var(--primary);box-shadow:0
 .item-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dotted #dee2e6;gap:10px}
 .item-row span:last-child,.summary-row span:last-child{min-width:60px;text-align:right;font-weight:600}
 .subtotal-row{display:flex;justify-content:space-between;font-weight:bold;padding:5px 4px;margin-top:4px;border-top:1px dashed #adb5bd}
-.bottom-fixed-area{position:absolute;bottom:12mm;left:8mm;right:8mm}.summary-section{border-top:2px solid #0056b3;background:#f8f9fa;padding:6px;border-radius:4px}
+.bottom-fixed-area{position:absolute;bottom:12mm;left:8mm;right:8mm}.summary-section{border-top:2px solid #0056b3;background:#f8f9fa;padding:6px;border-radius:4px}.inline-summary{margin-top:4px}.summary-section.fallback-summary{margin-top:0}
 .summary-row{display:flex;justify-content:space-between;font-weight:bold;margin-bottom:2px}.total-row{border-top:1px dashed #adb5bd;padding-top:3px;font-size:13px;color:#0056b3}
 .page-footer{text-align:right;font-size:10px;font-weight:bold;color:#6c757d;border-top:1px solid #dee2e6;padding-top:3px;margin-top:6px}
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.58);z-index:200;align-items:center;justify-content:center;padding:10px}
@@ -224,11 +224,13 @@ textarea:focus,input:focus,select:focus{border-color:var(--primary);box-shadow:0
 
 <!-- Settings -->
 <div id="settingsModal" class="modal no-print"><div class="modal-box">
-  <div class="modal-head"><h2>⚙️ Settings</h2><button class="close" onclick="closeModal('settingsModal')">✕</button></div>
+  <div class="modal-head"><div><h2>⚙️ Settings</h2><span class="muted">Stable version 3.0.0-stable</span></div><button class="close" onclick="closeModal('settingsModal')">✕</button></div>
   <div class="settings-list">
     <div class="setting"><div><b>🌙 Dark Mode</b><div class="muted">মোবাইল ও Desktop UI-তে dark theme</div></div><label class="switch"><input id="darkSwitch" type="checkbox" onchange="setTheme(this.checked)"><span class="slider"></span></label></div>
     <div class="setting"><div><b>💾 Auto Save Input</b><div class="muted">টাইপ করা raw input browser-এ অস্থায়ীভাবে রাখবে</div></div><label class="switch"><input id="saveInputSwitch" type="checkbox" checked onchange="localStorage.setItem('gsbd_save_input',this.checked)"><span class="slider"></span></label></div>
-    <div class="setting"><div><b>🧹 Reset All Local Data</b><div class="muted">শুধু backup নেওয়ার পর ব্যবহার করুন</div></div><button class="btn btn-danger" onclick="resetAllData()">সব Data Reset</button></div>
+    <div class="setting"><div><b>🧹 Maintenance / Clean Temporary Data</b><div class="muted">অস্থায়ী cache/input পরিষ্কার করবে; Invoice history মুছবে না</div></div><button class="btn btn-warning" onclick="cleanTemporaryData()">Clean</button></div>
+    <div class="setting"><div><b>🔍 Data Integrity Check</b><div class="muted">History, serial ও backup-state পরীক্ষা করবে</div></div><button class="btn btn-info" onclick="runIntegrityCheck()">Check</button></div>
+    <div class="setting"><div><b>🧹 Reset All Local Data</b><div class="muted">শুধু Full Backup নেওয়ার পর ব্যবহার করুন</div></div><button class="btn btn-danger" onclick="resetAllData()">সব Data Reset</button></div>
   </div>
 </div></div>
 
@@ -289,6 +291,15 @@ Parcel ID: 279933868
 
 const KEYS={history:'gsbd_invoice_history',seq:'gsbd_seq_number',trash:'gsbd_invoice_trash',raw:'gsbd_raw_text',auto:'gsbd_auto_backup_interval',lastBackup:'gsbd_last_backup_time',risk:'gsbd_risk_customers'};
 let selectedSerials=new Set();
+let currentInvoiceKey='';
+let currentInvoiceSerial=null;
+let currentInvoiceDate=null;
+let isRendering=false;
+const APP_VERSION='3.0.0-stable';
+const MAX_HISTORY=100000;
+function stableKey(text){return text.trim().replace(/\\r\\n/g,'\\n').replace(/\\r/g,'\\n');}
+function dataKey(text){return stableKey(text);}
+function safeHistory(){const h=history();return Array.isArray(h)?h.filter(x=>x&&x.serialNo&&typeof x.rawText==='string'):[];}
 
 function $(id){return document.getElementById(id)}
 function bnToEnNum(str){const d={'০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9'};return String(str??'').replace(/[০-৯]/g,x=>d[x])}
@@ -296,9 +307,15 @@ function enToBnNum(str){const d=['০','১','২','৩','৪','৫','৬','৭'
 function extractAmount(text){const m=bnToEnNum(text||'').match(/(\d[\d,]*)/);return m?parseFloat(m[1].replace(/,/g,''))||0:0}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function history(){try{return JSON.parse(localStorage.getItem(KEYS.history)||'[]')}catch{return[]}}
-function saveHistory(h){localStorage.setItem(KEYS.history,JSON.stringify(h))}
+function saveHistory(h){
+  try{localStorage.setItem(KEYS.history,JSON.stringify(h));return true}
+  catch(e){toast('Storage পূর্ণ/অ্যাক্সেসযোগ্য নয়। Full Backup নিয়ে পুরোনো data archive করুন।');return false}
+}
 function trash(){try{return JSON.parse(localStorage.getItem(KEYS.trash)||'[]')}catch{return[]}}
-function saveTrash(h){localStorage.setItem(KEYS.trash,JSON.stringify(h))}function riskCustomers(){try{return JSON.parse(localStorage.getItem(KEYS.risk)||'[]')}catch{return[]}}
+function saveTrash(h){
+  try{localStorage.setItem(KEYS.trash,JSON.stringify(h));return true}
+  catch(e){toast('Trash storage পূর্ণ হয়েছে');return false}
+}function riskCustomers(){try{return JSON.parse(localStorage.getItem(KEYS.risk)||'[]')}catch{return[]}}
 function saveRiskCustomers(list){localStorage.setItem(KEYS.risk,JSON.stringify(list))}
 function normalizePhone(phone){
   let n=bnToEnNum(phone).replace(/[^0-9]/g,'');
@@ -361,8 +378,17 @@ function updateRiskBadge(){const n=riskCustomers().length;const el=$('riskCountB
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('show');setTimeout(()=>$('toast').classList.remove('show'),2200)}
 function openModal(id){$(id).classList.add('open')}
 function closeModal(id){$(id).classList.remove('open')}
-function getNextSerial(){let n=parseInt(localStorage.getItem(KEYS.seq)||'1035',10)+1;localStorage.setItem(KEYS.seq,n);return 'GSBD-'+n}
-function clearInput(){$('rawText').value='';$('pagesContainer').innerHTML='';localStorage.removeItem(KEYS.raw);toast('ইনপুট পরিষ্কার হয়েছে')}
+function getNextSerial(){
+  let n=parseInt(localStorage.getItem(KEYS.seq)||'1035',10);
+  if(!Number.isFinite(n)||n<1035)n=1035;
+  n+=1;
+  localStorage.setItem(KEYS.seq,String(n));
+  return 'GSBD-'+n;
+}
+function clearInput(){
+  $('rawText').value='';$('pagesContainer').innerHTML='';currentInvoiceKey='';currentInvoiceSerial=null;currentInvoiceDate=null;
+  localStorage.removeItem(KEYS.raw);toast('ইনপুট পরিষ্কার হয়েছে');
+}
 function scrollToTop(){window.scrollTo({top:0,behavior:'smooth'})}
 
 function parseRaw(text){
@@ -408,29 +434,83 @@ function renderInvoice(data,serial,dateText,container){
       </div>
       <div class="table-header"><span>পণ্যের বিবরণ</span><span>মূল্য</span></div><div class="items-list">
       ${pageItems.map(x=>`<div class="item-row"><span>${esc(x.name)}</span><span>${esc(x.priceText)}</span></div>`).join('')}
-      </div>${last?`<div class="subtotal-row"><span>পণ্যের মোট মূল্য:</span><span>${esc(data.subtotalText)}</span></div>`:''}
+      </div>${last?`<div class="subtotal-row"><span>পণ্যের মোট মূল্য:</span><span>${esc(data.subtotalText)}</span></div><div class="summary-section inline-summary" data-summary><div class="summary-row"><span>ডেলিভারি চার্জ:</span><span>৳${enToBnNum(data.delivery.toLocaleString('en-US'))}</span></div><div class="summary-row total-row"><span>সর্বমোট:</span><span>৳${enToBnNum((data.subtotal+data.delivery).toLocaleString('en-US'))}</span></div></div>`:''}
     </div>
-    <div class="bottom-fixed-area">${last?`<div class="summary-section"><div class="summary-row"><span>ডেলিভারি চার্জ:</span><span>৳${enToBnNum(data.delivery.toLocaleString('en-US'))}</span></div><div class="summary-row total-row"><span>সর্বমোট:</span><span>৳${enToBnNum((data.subtotal+data.delivery).toLocaleString('en-US'))}</span></div></div>`:''}<div class="page-footer">Page ${enToBnNum(page)} of ${enToBnNum(totalPages)}</div></div>`;
-    container.appendChild(div)
+    <div class="bottom-fixed-area"><div class="page-footer">Page ${enToBnNum(page)} of ${enToBnNum(totalPages)}</div></div>`;
+    container.appendChild(div);
+    if(last){
+      const summary=div.querySelector('[data-summary]');
+      const fixed=div.querySelector('.bottom-fixed-area');
+      if(summary&&fixed){
+        // প্রথমে summary পণ্যের মোট মূল্যের ঠিক নিচে থাকবে।
+        // সেখানে footer-এর সঙ্গে overlap হওয়ার ঝুঁকি থাকলে তবেই নিচে fixed অবস্থানে যাবে।
+        requestAnimationFrame(()=>{
+          const cardRect=div.getBoundingClientRect();
+          const fixedRect=fixed.getBoundingClientRect();
+          const summaryRect=summary.getBoundingClientRect();
+          const safetyGap=6;
+          const footerTop=fixedRect.top;
+          if(summaryRect.bottom + safetyGap > footerTop){
+            summary.classList.remove('inline-summary');
+            summary.classList.add('fallback-summary');
+            fixed.insertBefore(summary,fixed.firstChild);
+          }
+        });
+      }
+    }
   });
   $('previewInfo').textContent=`${enToBnNum(totalPages)} পৃষ্ঠা • ${enToBnNum(data.items.length)} পণ্য`;
 }
-function parseText(existingSerial=null,existingDate=null){
+function renderFromText(text, serial, dateText){
+  const data=parseRaw(text);
+  showRiskAlert(data);
+  $('pagesContainer').innerHTML='';
+  renderInvoice(data,serial,dateText,$('pagesContainer'));
+  return data;
+}
+function parseText(options={}){
   const text=$('rawText').value.trim();
   if(!text){toast('অনুগ্রহ করে তথ্য পেস্ট করুন');return false}
   if(localStorage.getItem('gsbd_save_input')!=='false')localStorage.setItem(KEYS.raw,text);
-  const data=parseRaw(text),serial=existingSerial||getNextSerial();
-  showRiskAlert(data);
-  const date=existingDate||new Date().toLocaleDateString('bn-BD',{year:'numeric',month:'numeric',day:'numeric'});
-  $('pagesContainer').innerHTML='';renderInvoice(data,serial,date,$('pagesContainer'));
-  if(!existingSerial){
-    let h=history();h.unshift({serialNo:serial,courierId:data.courierId,custName:data.custName,custPhone:data.custPhone,date,timestamp:Date.now(),rawText:text});
-    saveHistory(h);checkAutoBackup();updateDashboard();toast('ইনভয়েস তৈরি হয়েছে: '+serial)
+
+  const key=dataKey(text);
+  const forceNew=options.forceNew===true;
+  let serial=currentInvoiceSerial;
+  let date=currentInvoiceDate;
+
+  // একই input আবার Generate/Print/PDF করলে নতুন Invoice তৈরি হবে না।
+  if(forceNew || !serial || currentInvoiceKey!==key){
+    const data=parseRaw(text);
+    serial=getNextSerial();
+    date=new Date().toLocaleDateString('bn-BD',{year:'numeric',month:'numeric',day:'numeric'});
+    let h=safeHistory();
+
+    // Browser refresh/retry-এর কারণে একই raw data খুব দ্রুত আবার save হওয়া আটকানো।
+    const recentDuplicate=h.find(x=>x.rawText===text && Math.abs((x.timestamp||0)-Date.now())<3000);
+    if(recentDuplicate && !forceNew){
+      serial=recentDuplicate.serialNo; date=recentDuplicate.date;
+    }else{
+      h.unshift({serialNo:serial,courierId:data.courierId,custName:data.custName,custPhone:data.custPhone,date,timestamp:Date.now(),rawText:text,appVersion:APP_VERSION});
+      if(h.length>MAX_HISTORY)h=h.slice(0,MAX_HISTORY);
+      saveHistory(h);
+      checkAutoBackup();
+    }
+    currentInvoiceKey=key; currentInvoiceSerial=serial; currentInvoiceDate=date;
   }
-  return true
+  renderFromText(text,serial,date);
+  updateDashboard();
+  toast('ইনভয়েস প্রস্তুত: '+serial);
+  return true;
 }
-function handlePrint(){if(parseText())setTimeout(()=>window.print(),250)}
-function handleDownload(){if(!parseText())return;setTimeout(()=>html2pdf().from($('pagesContainer')).set({margin:0,filename:'Invoice-'+Date.now()+'.pdf',image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'mm',format:[140,220],orientation:'portrait'}}).save(),250)}
+
+function handlePrint(){
+  if(!parseText())return;
+  setTimeout(()=>window.print(),250);
+}
+function handleDownload(){
+  if(!parseText())return;
+  setTimeout(()=>html2pdf().from($('pagesContainer')).set({margin:0,filename:'Invoice-'+(currentInvoiceSerial||Date.now())+'.pdf',image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'mm',format:[140,220],orientation:'portrait'}}).save(),250);
+}
 async function shareCurrent(){
   const text=$('rawText').value.trim();if(!text){toast('আগে Invoice তৈরি করুন');return}
   if(navigator.share){try{await navigator.share({title:'Global Shop BD 24 Invoice',text})}catch{}}
@@ -464,7 +544,12 @@ function selectVisible(flag){document.querySelectorAll('.history-check').forEach
 function getRecord(serial){return history().find(x=>x.serialNo===serial)}
 function viewInvoice(enc){const x=getRecord(decodeURIComponent(enc));if(!x)return;closeModal('historyModal');$('rawText').value=x.rawText;$('pagesContainer').innerHTML='';const data=parseRaw(x.rawText);showRiskAlert(data);renderInvoice(data,x.serialNo,x.date,$('pagesContainer'))}
 function editInvoice(enc){const x=getRecord(decodeURIComponent(enc));if(!x)return;closeModal('historyModal');$('rawText').value=x.rawText;$('pagesContainer').innerHTML='';const data=parseRaw(x.rawText);showRiskAlert(data);renderInvoice(data,x.serialNo,x.date,$('pagesContainer'));window.scrollTo({top:0,behavior:'smooth'});toast('Edit mode: পরিবর্তন করে নতুন Invoice তৈরি করতে পারবেন')}
-function duplicateInvoice(enc){const x=getRecord(decodeURIComponent(enc));if(!x)return;$('rawText').value=x.rawText;closeModal('historyModal');parseText();toast('Invoice duplicate করা হয়েছে')}
+function duplicateInvoice(enc){
+  const x=getRecord(decodeURIComponent(enc));if(!x)return;
+  $('rawText').value=x.rawText;closeModal('historyModal');
+  currentInvoiceKey='';currentInvoiceSerial=null;currentInvoiceDate=null;
+  parseText({forceNew:true});toast('নতুন Invoice কপি তৈরি হয়েছে');
+}
 function safeDelete(enc){const serial=decodeURIComponent(enc);if(!confirm('Invoice-টি Recycle Bin-এ পাঠাবেন?'))return;let h=history(),x=h.find(r=>r.serialNo===serial);if(!x)return;saveTrash([{...x,deletedAt:Date.now()},...trash()]);saveHistory(h.filter(r=>r.serialNo!==serial));selectedSerials.delete(serial);renderHistory();updateDashboard();toast('Recycle Bin-এ পাঠানো হয়েছে')}
 function trashSelected(){const h=history(),chosen=h.filter(x=>selectedSerials.has(x.serialNo));if(!chosen.length){toast('কোনো Invoice select করা হয়নি');return}if(!confirm(`${chosen.length} টি Invoice Trash-এ পাঠাবেন?`))return;saveTrash([...chosen.map(x=>({...x,deletedAt:Date.now()})),...trash()]);saveHistory(h.filter(x=>!selectedSerials.has(x.serialNo)));selectedSerials.clear();renderHistory();updateDashboard()}
 function printSelected(){const chosen=history().filter(x=>selectedSerials.has(x.serialNo));if(!chosen.length){toast('কোনো Invoice select করা হয়নি');return}$('pagesContainer').innerHTML='';let riskFound=false;chosen.forEach(x=>{const data=parseRaw(x.rawText);if(showRiskAlert(data).length)riskFound=true;renderInvoice(data,x.serialNo,x.date,$('pagesContainer'))});if(!riskFound)showRiskAlert({custPhone:'',custName:'',address:''});closeModal('historyModal');setTimeout(()=>window.print(),300)}
@@ -517,17 +602,56 @@ function updateDashboard(){
 function renderLinks(){$('appLinks').innerHTML=APP_LINKS.map(x=>`<a class="app-link" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">🔗 ${esc(x.name)} <span style="margin-left:auto">↗</span></a>`).join('')}
 function toggleTheme(){setTheme(!document.body.classList.contains('dark'))}
 function setTheme(dark){document.body.classList.toggle('dark',dark);localStorage.setItem('gsbd_theme',dark?'dark':'light');$('darkSwitch').checked=dark}
+function cleanTemporaryData(){
+  if(!confirm('অস্থায়ী data পরিষ্কার করবেন? Invoice History, Trash ও Risk Customer মুছবে না।'))return;
+  localStorage.removeItem(KEYS.raw);
+  localStorage.removeItem(KEYS.lastBackup);
+  currentInvoiceKey='';currentInvoiceSerial=null;currentInvoiceDate=null;
+  $('rawText').value='';
+  $('pagesContainer').innerHTML='';
+  toast('অস্থায়ী data পরিষ্কার হয়েছে');
+}
+function runIntegrityCheck(){
+  try{
+    const h=safeHistory(), t=trash(), r=riskCustomers();
+    const seq=parseInt(localStorage.getItem(KEYS.seq)||'1035',10);
+    const serialNums=h.map(x=>parseInt(String(x.serialNo).replace('GSBD-',''),10)).filter(Number.isFinite);
+    const maxSerial=serialNums.length?Math.max(...serialNums):1035;
+    if(!Number.isFinite(seq) || seq<maxSerial) throw new Error('Sequence mismatch');
+    const json=JSON.stringify(h);
+    if(json.length>4500000) throw new Error('History is approaching localStorage limit');
+    toast(`Integrity OK • ${h.length} Invoice • ${t.length} Trash • ${r.length} Risk • Sequence ${seq}`);
+    return true;
+  }catch(e){toast('Integrity check-এ সমস্যা: '+e.message);return false}
+}
 function resetAllData(){
-  if(!confirm('সতর্কতা: Invoice history, Trash, sequence ও saved input মুছে যাবে। আগে Full Backup নিয়েছেন তো?'))return;
-  [KEYS.history,KEYS.seq,KEYS.trash,KEYS.raw,KEYS.risk].forEach(k=>localStorage.removeItem(k));$('rawText').value='';$('pagesContainer').innerHTML='';updateDashboard();toast('Local data reset হয়েছে')
+  if(!confirm('সতর্কতা: Invoice history, Trash, sequence, Risk এবং saved input মুছে যাবে। আগে Full Backup নিয়েছেন তো?'))return;
+  [KEYS.history,KEYS.seq,KEYS.trash,KEYS.raw,KEYS.risk,KEYS.auto,KEYS.lastBackup].forEach(k=>localStorage.removeItem(k));
+  $('rawText').value='';$('pagesContainer').innerHTML='';
+  currentInvoiceKey='';currentInvoiceSerial=null;currentInvoiceDate=null;
+  updateDashboard();updateRiskBadge();toast('সব Local data reset হয়েছে');
 }
 
 window.addEventListener('DOMContentLoaded',()=>{
   renderLinks();
-  const saved=localStorage.getItem(KEYS.raw);$('rawText').value=saved||DEFAULT_SAMPLE;
+  const saved=localStorage.getItem(KEYS.raw);
+  $('rawText').value=saved||DEFAULT_SAMPLE;
   const dark=localStorage.getItem('gsbd_theme')==='dark';setTheme(dark);
   $('saveInputSwitch').checked=localStorage.getItem('gsbd_save_input')!=='false';
-  updateDashboard();updateRiskBadge();parseText();checkAutoBackup();
+  updateDashboard();updateRiskBadge();
+
+  // Startup কখনও নতুন Invoice save/serial increment করবে না।
+  if($('rawText').value.trim()){
+    const h=safeHistory();
+    const last=h.find(x=>x.rawText===stableKey($('rawText').value.trim()));
+    if(last){
+      currentInvoiceKey=dataKey($('rawText').value);
+      currentInvoiceSerial=last.serialNo;
+      currentInvoiceDate=last.date;
+      renderFromText($('rawText').value.trim(),last.serialNo,last.date);
+    }
+  }
+  checkAutoBackup();
 });
 $('rawText').addEventListener('input',()=>{if($('saveInputSwitch')?.checked)localStorage.setItem(KEYS.raw,$('rawText').value)});
 </script>
